@@ -6,3 +6,6 @@ erl_crash.dump
 openusd-*-src/
 openusd-*.tar.gz
 /cover/
+
+__pycache__/
+*.pyc
