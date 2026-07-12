@@ -47,11 +47,11 @@ defmodule StageRuntime.MixProject do
 
   defp package do
     [
-      licenses: ["MIT"],
+      licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url, "OpenUSD" => "https://openusd.org"},
       # Ship the build machinery + the resolver + checksums; the large binaries
       # live on the GitHub release, not in the Hex tarball.
-      files: ~w(lib Makefile build_openusd.py patches checksum.txt mix.exs README.md LICENSE)
+      files: ~w(VERSION lib Makefile build_openusd.py patches checksum.txt mix.exs README.md LICENSE)
     ]
   end
 end
