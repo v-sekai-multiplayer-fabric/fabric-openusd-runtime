@@ -1,4 +1,4 @@
-defmodule OpenusdRuntime do
+defmodule StageRuntime do
   @moduledoc """
   Prebuilt, per-triplet OpenUSD runtime (monolithic `usd_ms` + headers + plugins).
 
@@ -7,13 +7,16 @@ defmodule OpenusdRuntime do
   against `checksum.txt`, and unpacks it. Set `OPENUSD_BUILD=true` to build
   OpenUSD from source instead (via the `Makefile` + `build_openusd.py`).
 
-  Downstream NIFs consume `OpenusdRuntime.include_dir/0` and `lib_dir/0`.
+  Downstream NIFs consume `StageRuntime.include_dir/0` and `lib_dir/0`.
   """
 
   require Logger
 
   @openusd_version "26.05"
-  @github_repo "v-sekai-multiplayer-fabric/fabric-openusd-runtime"
+  @github_repo "v-sekai-multiplayer-fabric/fabric-stage-runtime"
+  # GitHub release tag the prebuilt archives are attached to (dev→beta→rc→release
+  # progression). Bump alongside the mix.exs package version.
+  @release_tag "v0.1.0-dev.1"
 
   @targets ~w(x86_64-linux-gnu aarch64-apple-darwin x86_64-windows-msvc)
 
@@ -128,8 +131,7 @@ defmodule OpenusdRuntime do
   end
 
   defp release_url do
-    tag = "v#{@openusd_version}.0"
-    "https://github.com/#{@github_repo}/releases/download/#{tag}/#{archive_filename()}"
+    "https://github.com/#{@github_repo}/releases/download/#{@release_tag}/#{archive_filename()}"
   end
 
   defp download!(url, dest) do
@@ -198,7 +200,7 @@ defmodule OpenusdRuntime do
   defp cache_dir do
     base =
       System.get_env("OPENUSD_CACHE_DIR") ||
-        Path.join(:filename.basedir(:user_cache, "openusd_runtime"), @openusd_version)
+        Path.join(:filename.basedir(:user_cache, "stage_runtime"), @openusd_version)
 
     File.mkdir_p!(base)
     base

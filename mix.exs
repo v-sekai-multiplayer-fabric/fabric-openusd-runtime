@@ -1,26 +1,27 @@
-defmodule OpenusdRuntime.MixProject do
+defmodule StageRuntime.MixProject do
   use Mix.Project
 
-  # <package version>; the OpenUSD version it ships is OpenusdRuntime.openusd_version/0.
-  @version "26.5.0"
-  @source_url "https://github.com/v-sekai-multiplayer-fabric/fabric-openusd-runtime"
+  # Package version follows the dev→beta→rc→release tag progression; the OpenUSD
+  # version it ships is separate (StageRuntime.openusd_version/0 → "26.05").
+  @version "0.1.0-dev.1"
+  @source_url "https://github.com/v-sekai-multiplayer-fabric/fabric-stage-runtime"
 
   def project do
     [
-      app: :openusd_runtime,
+      app: :stage_runtime,
       version: @version,
       elixir: "~> 1.15",
       deps: deps(),
       # Build OpenUSD from source only when OPENUSD_BUILD is set; otherwise
       # `mix compile` downloads the matching prebuilt archive (xla-style).
       compilers: Mix.compilers() ++ if(build?(), do: [:elixir_make], else: []),
-      make_env: &OpenusdRuntime.make_env/0,
+      make_env: &StageRuntime.make_env/0,
       make_executable: make_executable(),
       description:
-        "Prebuilt, per-triplet OpenUSD runtime (v26.05, monolithic usd_ms) shipped as an Elixir/Hex package.",
+        "Prebuilt, per-triplet USD scene-description runtime (OpenUSD v26.05, monolithic usd_ms) shipped as an Elixir/Hex package.",
       package: package(),
       source_url: @source_url,
-      docs: [main: "OpenusdRuntime"]
+      docs: [main: "StageRuntime"]
     ]
   end
 

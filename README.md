@@ -1,4 +1,4 @@
-# fabric-openusd-runtime
+# fabric-stage-runtime
 
 Special thanks to the origin of this project: https://github.com/Immersive-Data-Center-Management/idtx-flow.
 
@@ -16,14 +16,14 @@ verifies it against `checksum.txt`, and unpacks it. Elixir-native — `elixir_ma
 
 ```elixir
 def deps do
-  [{:openusd_runtime, "~> 26.5"}]
+  [{:stage_runtime, "~> 26.5"}]
 end
 ```
 
 ```elixir
-OpenusdRuntime.include_dir()  #=> ".../openusd-26.05-<triplet>/include"
-OpenusdRuntime.lib_dir()      #=> ".../openusd-26.05-<triplet>/lib"  (contains usd_ms)
-OpenusdRuntime.target()       #=> "x86_64-linux-gnu" | "aarch64-apple-darwin" | "x86_64-windows-msvc"
+StageRuntime.include_dir()  #=> ".../openusd-26.05-<triplet>/include"
+StageRuntime.lib_dir()      #=> ".../openusd-26.05-<triplet>/lib"  (contains usd_ms)
+StageRuntime.target()       #=> "x86_64-linux-gnu" | "aarch64-apple-darwin" | "x86_64-windows-msvc"
 ```
 
 ## Triplets
