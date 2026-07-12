@@ -182,9 +182,16 @@ def main():
         package(args.build_dir)
 
 
+# build_usd.py's install prefix also holds the dependency source (`src/`) and
+# build-intermediate (`build/`) trees — huge on Windows (MSVC .obj/.pdb). Ship
+# only the installed SDK.
+_PACKAGE_SKIP = {"src", "build"}
+
+
 def package(build_dir):
-    """tar.gz the contents of build_dir into OPENUSD_ARCHIVE (so extracting the
-    archive yields include/, lib/, plugin/, ... at the destination root)."""
+    """tar.gz the installed OpenUSD SDK from build_dir into OPENUSD_ARCHIVE (so
+    extracting yields include/, lib/, plugin/, bin/, share/, cmake/ at the root),
+    excluding the dependency source/build-intermediate trees."""
     archive = os.environ.get("OPENUSD_ARCHIVE")
     if not archive:
         sys.exit("OPENUSD_ARCHIVE not set; cannot package")
@@ -192,6 +199,8 @@ def package(build_dir):
     print(f"Packaging {build_dir} -> {archive}", flush=True)
     with tarfile.open(archive, "w:gz") as tar:
         for entry in sorted(os.listdir(build_dir)):
+            if entry in _PACKAGE_SKIP:
+                continue
             tar.add(os.path.join(build_dir, entry), arcname=entry)
 
 
