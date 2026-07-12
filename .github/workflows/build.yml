@@ -32,6 +32,9 @@ jobs:
                       target: aarch64-apple-darwin
                     - os: windows-2022
                       target: x86_64-windows-msvc
+                    # llvm-mingw (GNU ABI) usd_ms for mingw consumers (cloth-fit).
+                    - os: windows-2022
+                      target: x86_64-windows-gnu
         env:
             OPENUSD_BUILD: '1'
             OPENUSD_TARGET: ${{ matrix.target }}
@@ -53,6 +56,17 @@ jobs:
 
             - name: Set up sccache
               uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696
+
+            # The -gnu target builds with llvm-mingw (clang + mingw32-make),
+            # installed via scoop so it matches the toolchain cloth-fit uses.
+            - name: Set up llvm-mingw
+              if: endsWith(matrix.target, 'windows-gnu')
+              shell: pwsh
+              run: |
+                  iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
+                  scoop install llvm-mingw
+                  Add-Content $env:GITHUB_PATH "$env:USERPROFILE\scoop\shims"
+                  Add-Content $env:GITHUB_PATH "$env:USERPROFILE\scoop\apps\llvm-mingw\current\bin"
 
             - name: Build OpenUSD runtime
               shell: bash

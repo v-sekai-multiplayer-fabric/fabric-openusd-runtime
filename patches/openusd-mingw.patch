@@ -1,0 +1,87 @@
+diff --git a/cmake/macros/Private.cmake b/cmake/macros/Private.cmake
+index e2dccb0..6a95654 100644
+--- a/cmake/macros/Private.cmake
++++ b/cmake/macros/Private.cmake
+@@ -1467,7 +1467,7 @@ function(_pxr_library NAME)
+                 ARCHIVE DESTINATION ${libInstallPrefix}
+                 RUNTIME DESTINATION ${libInstallPrefix}
+             )
+-            if(WIN32)
++            if(MSVC)
+                 install(
+                     FILES $<TARGET_PDB_FILE:${NAME}>
+                     DESTINATION ${libInstallPrefix}
+@@ -1482,7 +1482,7 @@ function(_pxr_library NAME)
+                 ARCHIVE DESTINATION ${libInstallPrefix}
+                 RUNTIME DESTINATION ${libInstallPrefix}
+             )
+-            if(WIN32)
++            if(MSVC)
+                 install(
+                     FILES $<TARGET_PDB_FILE:${NAME}>
+                     EXPORT pxrTargets
+diff --git a/cmake/macros/Public.cmake b/cmake/macros/Public.cmake
+index b51789f..4f68228 100644
+--- a/cmake/macros/Public.cmake
++++ b/cmake/macros/Public.cmake
+@@ -1204,7 +1204,7 @@ function(pxr_toplevel_prologue)
+                 ARCHIVE DESTINATION ${libInstallPrefix}
+                 RUNTIME DESTINATION ${libInstallPrefix}
+             )
+-            if(WIN32 AND BUILD_SHARED_LIBS)
++            if(MSVC AND BUILD_SHARED_LIBS)
+                 install(
+                     FILES $<TARGET_PDB_FILE:usd_m>
+                     DESTINATION ${libInstallPrefix}
+diff --git a/pxr/base/arch/attributes.cpp b/pxr/base/arch/attributes.cpp
+index 1309d6f..a75390f 100644
+--- a/pxr/base/arch/attributes.cpp
++++ b/pxr/base/arch/attributes.cpp
+@@ -254,7 +254,7 @@ static void InstallDyldCallbacks()
+ 
+ PXR_NAMESPACE_CLOSE_SCOPE
+ 
+-#elif defined(ARCH_OS_WINDOWS)
++#elif defined(ARCH_OS_WINDOWS) && defined(ARCH_COMPILER_MSVC)
+ 
+ #include <Windows.h>
+ #include <algorithm>
+diff --git a/pxr/base/arch/errno.cpp b/pxr/base/arch/errno.cpp
+index 3f87c6f..bd4cfa3 100644
+--- a/pxr/base/arch/errno.cpp
++++ b/pxr/base/arch/errno.cpp
+@@ -53,6 +53,9 @@ ArchStrerror(int errorCode)
+     //
+     char* result = strerror_r(errorCode, msg_buf, sizeof(msg_buf));
+     return std::string(result);
++#elif defined(ARCH_OS_WINDOWS) && !defined(ARCH_COMPILER_MSVC)
++    // llvm-mingw: no strerror_r; strerror_s signature differs. Use strerror.
++    return std::string(strerror(errorCode));
+ #elif !defined(ARCH_COMPILER_MSVC)
+     strerror_r(errorCode, msg_buf, 256);
+ #else
+diff --git a/pxr/base/arch/fileSystem.cpp b/pxr/base/arch/fileSystem.cpp
+index 96e0c83..3ab16da 100644
+--- a/pxr/base/arch/fileSystem.cpp
++++ b/pxr/base/arch/fileSystem.cpp
+@@ -31,6 +31,7 @@
+ #if defined(ARCH_OS_WINDOWS)
+ #include <functional>
+ #include <io.h>
++#include <share.h>  // _SH_DENYNO (mingw needs this explicitly)
+ #include <process.h>
+ #include <Windows.h>
+ #include <WinIoCtl.h>
+diff --git a/pxr/base/arch/library.cpp b/pxr/base/arch/library.cpp
+index 184e8ca..f036b34 100644
+--- a/pxr/base/arch/library.cpp
++++ b/pxr/base/arch/library.cpp
+@@ -72,7 +72,7 @@ int ArchLibraryClose(void* handle)
+ void* ArchLibraryGetSymbolAddress(void* handle, const char* name)
+ {
+ #if defined(ARCH_OS_WINDOWS)
+-    return GetProcAddress(reinterpret_cast<HMODULE>(handle), name);
++    return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(handle), name));
+ #else
+     return dlsym(handle, name);
+ #endif

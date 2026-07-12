@@ -26,7 +26,10 @@ defmodule StageRuntime do
   @version File.read!(@version_path) |> String.trim()
   @release_tag "v#{@version}"
 
-  @targets ~w(x86_64-linux-gnu aarch64-apple-darwin x86_64-windows-msvc)
+  # Two Windows triplets differ only by C++ ABI: -msvc for MSVC consumers (the
+  # Godot/Unity adapters), -gnu for llvm-mingw consumers (cloth-fit's NIF). The
+  # host defaults to -msvc; select -gnu via OPENUSD_TARGET.
+  @targets ~w(x86_64-linux-gnu aarch64-apple-darwin x86_64-windows-msvc x86_64-windows-gnu)
 
   # Bake the per-triplet checksums in at compile time (populated by CI after the
   # release build). `checksum.txt` lines are "sha256:<hex>  <archive-name>".

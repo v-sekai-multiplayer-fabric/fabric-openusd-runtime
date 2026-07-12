@@ -107,6 +107,118 @@ def windows_msvc_env():
     return env
 
 
+# --- Windows llvm-mingw (x86_64-windows-gnu) build --------------------------
+#
+# The default path uses OpenUSD's build_usd.py, which forces the Visual Studio
+# (MSVC) generator on Windows. That produces an MSVC-ABI usd_ms, which cannot be
+# linked by llvm-mingw consumers (e.g. cloth-fit's NIF). This path builds a
+# GNU-ABI usd_ms with llvm-mingw instead: drive USD's CMake directly (no
+# build_usd.py), against a shared oneTBB, with the small openusd-mingw.patch.
+
+_TBB_TAG = "v2021.9.0"  # matches the oneTBB cloth-fit's NIF uses (ABI/version parity)
+
+
+def _run(cmd, **kw):
+    print("+ " + " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True, **kw)
+
+
+def apply_mingw_patch(src):
+    patch = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "patches", "openusd-mingw.patch")
+    # Idempotent: skip if it already applies in reverse (i.e. already applied).
+    if subprocess.run(["git", "apply", "--reverse", "--check", patch],
+                      cwd=src, capture_output=True).returncode == 0:
+        print("openusd-mingw.patch already applied", flush=True)
+        return
+    _run(["git", "apply", patch], cwd=src)
+
+
+def build_onetbb_shared_mingw(prefix, cc, cxx, make):
+    """Build a SHARED oneTBB with llvm-mingw. usd_ms and the consumer NIF must
+    share one TBB runtime instance; two static instances abort at first use."""
+    src = "onetbb-src"
+    if not os.path.isdir(src):
+        _run(["git", "clone", "-b", _TBB_TAG, "--depth", "1",
+              "https://github.com/oneapi-src/oneTBB.git", src])
+    bld = "onetbb-build"
+    _run(["cmake", "-S", src, "-B", bld, "-G", "MinGW Makefiles",
+          f"-DCMAKE_MAKE_PROGRAM={make}",
+          f"-DCMAKE_C_COMPILER={cc}", f"-DCMAKE_CXX_COMPILER={cxx}",
+          "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=ON",
+          "-DTBB_TEST=OFF", "-DTBB_STRICT=OFF",
+          f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"])
+    _run(["cmake", "--build", bld, "-j", str(os.cpu_count() or 4), "--target", "install"])
+
+
+def build_windows_gnu(src, build_dir, release, sccache_args):
+    cc = shutil.which("clang") or "clang"
+    cxx = shutil.which("clang++") or "clang++"
+    make = shutil.which("mingw32-make") or "mingw32-make"
+    print(f"llvm-mingw build: cc={cc} cxx={cxx}", flush=True)
+
+    apply_mingw_patch(src)
+
+    tbb_prefix = os.path.abspath("tbb-mingw")
+    build_onetbb_shared_mingw(tbb_prefix, cc, cxx, make)
+
+    bld = "openusd-build-mingw"
+    config = [
+        "cmake", "-S", src, "-B", bld, "-G", "MinGW Makefiles",
+        f"-DCMAKE_MAKE_PROGRAM={make}",
+        f"-DCMAKE_C_COMPILER={cc}", f"-DCMAKE_CXX_COMPILER={cxx}",
+        "-DCMAKE_BUILD_TYPE=" + ("Release" if release else "RelWithDebInfo"),
+        f"-DCMAKE_INSTALL_PREFIX={build_dir}",
+        f"-DCMAKE_PREFIX_PATH={tbb_prefix}",
+        "-DCMAKE_CXX_STANDARD=17", "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+        "-DPXR_ENABLE_PYTHON_SUPPORT=OFF", "-DPXR_BUILD_MONOLITHIC=ON",
+        "-DPXR_BUILD_IMAGING=OFF", "-DPXR_BUILD_USD_IMAGING=OFF",
+        "-DPXR_BUILD_USDVIEW=OFF", "-DPXR_BUILD_TESTS=OFF",
+        "-DPXR_BUILD_EXAMPLES=OFF", "-DPXR_BUILD_TUTORIALS=OFF",
+        "-DPXR_BUILD_DOCUMENTATION=OFF", "-DPXR_ENABLE_MATERIALX_SUPPORT=OFF",
+        "-DPXR_ENABLE_VULKAN_SUPPORT=OFF", "-DPXR_ENABLE_OPENVDB_SUPPORT=OFF",
+    ] + sccache_args
+    _run(config)
+    _run(["cmake", "--build", bld, "-j", str(os.cpu_count() or 4), "--target", "usd_m"])
+
+    # USD's install tries to install a few bin tools that don't exist in this
+    # headless/no-python build and can fail late; the libs/headers/plugins are
+    # already staged by then, so tolerate a non-zero install and verify below.
+    subprocess.run(["cmake", "--install", bld], check=False)
+
+    lib = os.path.join(build_dir, "lib", "libusd_ms.dll")
+    if not os.path.exists(lib):
+        sys.exit(f"windows-gnu build incomplete: {lib} missing")
+
+    # USD's install can skip the top-level plugin-registry aggregator; without it
+    # PlugRegistry finds 0 plugins and any file-format op fatal-aborts.
+    agg = os.path.join(build_dir, "lib", "usd", "plugInfo.json")
+    os.makedirs(os.path.dirname(agg), exist_ok=True)
+    with open(agg, "w", encoding="utf-8") as f:
+        f.write('{\n    "Includes": [ "*/resources/" ]\n}\n')
+
+    # Ship the shared oneTBB (dll + import lib) and its headers so the archive is
+    # self-contained for a mingw consumer (usd_ms dynamically needs libtbb12.dll,
+    # and pxr headers include <tbb/...>).
+    dst_lib = os.path.join(build_dir, "lib")
+    dst_bin = os.path.join(build_dir, "bin")
+    os.makedirs(dst_bin, exist_ok=True)
+    for rel, dst in [("bin/libtbb12.dll", dst_bin), ("bin/libtbbmalloc.dll", dst_bin),
+                     ("lib/libtbb12.dll.a", dst_lib), ("lib/libtbbmalloc.dll.a", dst_lib)]:
+        s = os.path.join(tbb_prefix, rel)
+        if os.path.exists(s):
+            shutil.copy(s, dst)
+    # loaders search lib/ too; keep a copy of the tbb runtime beside usd_ms
+    for name in ("libtbb12.dll", "libtbbmalloc.dll"):
+        s = os.path.join(tbb_prefix, "bin", name)
+        if os.path.exists(s):
+            shutil.copy(s, dst_lib)
+    for hdr in ("tbb", "oneapi"):
+        s = os.path.join(tbb_prefix, "include", hdr)
+        if os.path.isdir(s):
+            shutil.copytree(s, os.path.join(build_dir, "include", hdr), dirs_exist_ok=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", required=True, help="OpenUSD install prefix")
@@ -120,6 +232,7 @@ def main():
 
     version = os.environ.get("OPENUSD_VERSION", "26.05")
     plat = platform_name()
+    target = os.environ.get("OPENUSD_TARGET", "")
     src = f"openusd-{version}-src"
 
     if not os.path.exists(src):
@@ -129,6 +242,25 @@ def main():
             "https://github.com/PixarAnimationStudios/OpenUSD.git", src]).returncode
         if rc != 0:
             sys.exit(f"OpenUSD clone failed ({rc})")
+
+    # llvm-mingw (GNU ABI) Windows build: usd_ms consumable by mingw toolchains.
+    if target.endswith("windows-gnu"):
+        gnu_lib = f"{args.build_dir}/lib/libusd_ms.dll"
+        if os.path.exists(gnu_lib):
+            print(f"OpenUSD (windows-gnu) already built at {args.build_dir}", flush=True)
+        else:
+            use_sccache = os.environ.get("USE_SCCACHE", "") not in ("", "0", "no", "false")
+            sccache = shutil.which("sccache") if use_sccache else None
+            sccache_args = []
+            if sccache:
+                launcher = sccache.replace("\\", "/")
+                sccache_args = [f"-DCMAKE_C_COMPILER_LAUNCHER={launcher}",
+                                f"-DCMAKE_CXX_COMPILER_LAUNCHER={launcher}"]
+            build_windows_gnu(src, args.build_dir, args.release, sccache_args)
+        if args.package:
+            package(args.build_dir)
+        return
+
     patch_vs2026(src)
 
     lib = {
