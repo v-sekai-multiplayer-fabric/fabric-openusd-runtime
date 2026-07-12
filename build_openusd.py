@@ -14,6 +14,7 @@ Env:
     USE_SCCACHE       when truthy, route OpenUSD's CMake compiles through sccache
 """
 import argparse
+import gzip
 import os
 import shutil
 import subprocess
@@ -188,20 +189,64 @@ def main():
 _PACKAGE_SKIP = {"src", "build"}
 
 
+def _deterministic_tarinfo(ti):
+    """Normalize metadata so the archive depends only on file contents+layout,
+    not on the machine/time it was packaged: zero mtimes, drop owner identity,
+    and canonicalize permission bits."""
+    ti.mtime = 0
+    ti.uid = ti.gid = 0
+    ti.uname = ti.gname = ""
+    if ti.isdir():
+        ti.mode = 0o755
+    else:
+        ti.mode = 0o755 if (ti.mode & 0o111) else 0o644
+    return ti
+
+
+def _sorted_arcnames(build_dir):
+    """Every entry (dirs + files) under build_dir except the skipped trees, as
+    forward-slash relative arcnames in a stable, OS-independent sort order."""
+    names = []
+    for entry in os.listdir(build_dir):
+        if entry in _PACKAGE_SKIP:
+            continue
+        full = os.path.join(build_dir, entry)
+        if os.path.isdir(full):
+            for root, dirs, files in os.walk(full):
+                dirs.sort()
+                names.append(os.path.relpath(root, build_dir))
+                for f in files:
+                    names.append(os.path.relpath(os.path.join(root, f), build_dir))
+        else:
+            names.append(entry)
+    return sorted({n.replace(os.sep, "/") for n in names})
+
+
 def package(build_dir):
-    """tar.gz the installed OpenUSD SDK from build_dir into OPENUSD_ARCHIVE (so
-    extracting yields include/, lib/, plugin/, bin/, share/, cmake/ at the root),
-    excluding the dependency source/build-intermediate trees."""
+    """Deterministically tar.gz the installed OpenUSD SDK from build_dir into
+    OPENUSD_ARCHIVE (so extracting yields include/, lib/, plugin/, bin/, share/,
+    cmake/ at the root), excluding the dependency source/build-intermediate
+    trees. The archive is byte-reproducible for identical build outputs: entries
+    are emitted in a fixed order with normalized metadata and gzip mtime=0, so
+    re-packaging the same tree yields the same bytes (and same checksum)."""
     archive = os.environ.get("OPENUSD_ARCHIVE")
     if not archive:
         sys.exit("OPENUSD_ARCHIVE not set; cannot package")
     os.makedirs(os.path.dirname(os.path.abspath(archive)), exist_ok=True)
     print(f"Packaging {build_dir} -> {archive}", flush=True)
-    with tarfile.open(archive, "w:gz") as tar:
-        for entry in sorted(os.listdir(build_dir)):
-            if entry in _PACKAGE_SKIP:
-                continue
-            tar.add(os.path.join(build_dir, entry), arcname=entry)
+    with open(archive, "wb") as f_out:
+        # mtime=0 keeps the gzip header itself reproducible.
+        with gzip.GzipFile(filename="", fileobj=f_out, mode="wb", mtime=0,
+                           compresslevel=9) as gz:
+            with tarfile.open(fileobj=gz, mode="w") as tar:
+                for arc in _sorted_arcnames(build_dir):
+                    src = os.path.join(build_dir, arc.replace("/", os.sep))
+                    ti = _deterministic_tarinfo(tar.gettarinfo(src, arcname=arc))
+                    if ti.isfile():
+                        with open(src, "rb") as fh:
+                            tar.addfile(ti, fh)
+                    else:
+                        tar.addfile(ti)
 
 
 if __name__ == "__main__":

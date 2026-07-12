@@ -14,9 +14,17 @@ defmodule StageRuntime do
 
   @openusd_version "26.05"
   @github_repo "v-sekai-multiplayer-fabric/fabric-stage-runtime"
-  # GitHub release tag the prebuilt archives are attached to (dev→beta→rc→release
-  # progression). Bump alongside the mix.exs package version.
-  @release_tag "v0.1.0-dev.1"
+
+  # The GitHub release tag is derived from the package version (single source of
+  # truth in the VERSION file), so a published version only ever downloads the
+  # archives built and attached for its own tag — build and checksums can never
+  # desync across versions. The release workflow builds the archives, generates
+  # checksum.txt from those exact files, attaches them to the "v#{version}"
+  # release, and publishes to Hex in the same job.
+  @version_path Path.join(__DIR__, "../VERSION")
+  @external_resource @version_path
+  @version File.read!(@version_path) |> String.trim()
+  @release_tag "v#{@version}"
 
   @targets ~w(x86_64-linux-gnu aarch64-apple-darwin x86_64-windows-msvc)
 

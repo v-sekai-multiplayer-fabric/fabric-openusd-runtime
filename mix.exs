@@ -3,7 +3,11 @@ defmodule StageRuntime.MixProject do
 
   # Package version follows the dev→beta→rc→release tag progression; the OpenUSD
   # version it ships is separate (StageRuntime.openusd_version/0 → "26.05").
-  @version "0.1.0-dev.4"
+  # Single source of truth for the package version. The GitHub release tag the
+  # prebuilt archives are downloaded from is "v#{@version}" (see StageRuntime),
+  # so each published version is self-contained: it only ever downloads the
+  # archives that were built and attached for its own tag.
+  @version File.read!(Path.join(__DIR__, "VERSION")) |> String.trim()
   @source_url "https://github.com/v-sekai-multiplayer-fabric/fabric-stage-runtime"
 
   def project do

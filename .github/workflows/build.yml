@@ -81,17 +81,38 @@ jobs:
         permissions:
             contents: write
         steps:
+            - uses: actions/checkout@v4
+
+            - uses: erlef/setup-beam@v1
+              with: { otp-version: '${{ env.OTP_VERSION }}', elixir-version: '${{ env.ELIXIR_VERSION }}' }
+
             - uses: actions/download-artifact@v4
               with: { path: artifacts, merge-multiple: true }
 
-            - name: Checksums
+            # Each published version downloads from "v#{version}"; enforce that the
+            # tag being released is exactly that so the package can never point at a
+            # release it wasn't built for.
+            - name: Verify tag matches VERSION
+              run: |
+                  set -euo pipefail
+                  want="v$(tr -d '[:space:]' < VERSION)"
+                  [ "$want" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != ${want}"; exit 1; }
+
+            # Generate checksum.txt from the exact archives just built, and copy it
+            # into the repo root so the Hex package published below carries the same
+            # checksums as the archives attached to this release — no desync possible,
+            # reproducible build or not.
+            - name: Generate checksum.txt from built archives
               run: |
                   set -euo pipefail
                   cd artifacts
+                  : > checksum.txt
                   for f in openusd-*.tar.gz; do
                     echo "sha256:$(sha256sum "$f" | cut -d' ' -f1)  $f" >> checksum.txt
                   done
+                  sort -o checksum.txt checksum.txt
                   cat checksum.txt
+                  cp checksum.txt "$GITHUB_WORKSPACE/checksum.txt"
 
             - name: Publish release
               uses: softprops/action-gh-release@v2
@@ -99,3 +120,12 @@ jobs:
                   files: |
                       artifacts/openusd-*.tar.gz
                       artifacts/checksum.txt
+
+            - name: Publish to Hex
+              env:
+                  HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+              run: |
+                  set -euo pipefail
+                  mix local.hex --force && mix local.rebar --force
+                  mix deps.get
+                  mix hex.publish package --yes
