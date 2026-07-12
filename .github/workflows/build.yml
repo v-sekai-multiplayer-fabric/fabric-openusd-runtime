@@ -137,6 +137,10 @@ jobs:
                       artifacts/openusd-*.tar.gz
                       artifacts/checksum.txt
 
+            # Idempotent: Hex releases are immutable, so re-running this job for a
+            # version already on Hex (e.g. a tag re-pushed, or a manual publish done
+            # out-of-band) must be a no-op, not a hard failure. Probe the Hex API for
+            # the exact version and only publish when it is absent.
             - name: Publish to Hex
               env:
                   HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
@@ -144,4 +148,11 @@ jobs:
                   set -euo pipefail
                   mix local.hex --force && mix local.rebar --force
                   mix deps.get
-                  mix hex.publish package --yes
+                  ver="$(tr -d '[:space:]' < VERSION)"
+                  code="$(curl -fsS -o /dev/null -w '%{http_code}' \
+                      "https://hex.pm/api/packages/stage_runtime/releases/${ver}" || true)"
+                  if [ "$code" = "200" ]; then
+                      echo "stage_runtime ${ver} is already on Hex — skipping publish (idempotent)."
+                  else
+                      mix hex.publish package --yes
+                  fi
